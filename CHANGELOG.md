@@ -2,6 +2,11 @@
 
 All notable changes to the Ollama Cloud Usage extension.
 
+## 1.1.1 - 2026-10-20
+
+### Fixed
+- Requests now use the bare `https` module. VS Code patches `require('https')` in the extension host to route through the configured/system proxy; importing `node:https` bypassed that patch and caused timeouts on networks where `ollama.com` is only reachable through a proxy.
+
 ## 1.1.0 - 2026-10-20
 
 ### Fixed

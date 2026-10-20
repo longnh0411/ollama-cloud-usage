@@ -120,6 +120,10 @@ npx @vscode/vsce package # produces ollama-cloud-usage-<version>.vsix
 
 ## Change history (important)
 
+### 1.1.1 — 2026-10-20
+
+- Fixed proxy bypass: `src/api.ts` imported `node:https`, which skips VS Code's extension-host `https` patch. Switched to `https`; requests now use the system/configured proxy (`http.proxySupport`, default `override`).
+
 ### 1.1.0 — 2026-10-20
 
 Ollama changed the API on **2026-10-07**; the extension had been broken.
@@ -134,8 +138,9 @@ Ollama changed the API on **2026-10-07**; the extension had been broken.
 
 ## Gotchas
 
+- **Import `https`, never `node:https`.** VS Code monkey-patches `require('https')` in the extension host to honour `http.proxy` / system proxy settings (`http.proxySupport`, default `override`). The `node:https` specifier bypasses that patch, causing `ETIMEDOUT` on networks where `ollama.com` is only reachable through a proxy. This was the cause of the 1.1.1 fix.
 - Do not assume `usage_usd` exists; it did not in the real legacy payload.
 - Do not assume `groups` exists on every bucket (empty arrays occur).
 - `totals.groups` is capped at 10 models plus an optional `remainder`; per-bucket groups are used for window counts.
 - Credit-plan behavior is implemented from the official docs and simulated fixtures; it has **not** been tested against a real credit account yet. If one is available, capture `/api/balance` and `/api/usage?range=30d&group_by=model` and add fixtures.
-- The HTTP layer uses Node's `https` module directly and therefore ignores `HTTPS_PROXY`/`HTTP_PROXY` environment variables. This matches the original implementation; add proxy support only if requested.
+- No custom proxy agent is needed: relying on VS Code's module patch keeps credentials and PAC handling working. If an explicit proxy is ever required (e.g. proxy support disabled), resolve it from `http.proxy` / `HTTPS_PROXY` and add CONNECT support deliberately.

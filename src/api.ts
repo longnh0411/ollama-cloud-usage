@@ -1,4 +1,6 @@
-import * as https from 'node:https';
+// Keep the bare specifier: VS Code patches `require('https')` in the extension
+// host to honour the system/configured proxy. `node:https` bypasses that patch.
+import * as https from 'https';
 
 const BALANCE_URL = 'https://ollama.com/api/balance';
 const USAGE_URL = 'https://ollama.com/api/usage';
