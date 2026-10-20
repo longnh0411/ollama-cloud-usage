@@ -6,3 +6,7 @@ out/**/*.map
 out/**/*.test.js
 out/**/*.test.js.map
 node_modules/**
+CLAUDE.md
+ollama-cloud-usage.postman_collection.json
+package-lock.json
+*.vsix

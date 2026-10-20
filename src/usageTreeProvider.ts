@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
-import { fetchUsage, LimitUsage, ModelUsage, UsageResponse } from './api';
+import { CreditUsage, fetchUsage, LimitUsage, ModelUsage, UsageResponse } from './api';
 import { AccountStore, AccountsState } from './accountStore';
-import { nextSessionResetMs, nextWeeklyResetMs } from './resetTime';
 
 type UsageNode = {
   label: string;
@@ -37,10 +36,6 @@ function formatDate(value: string): string {
   }).format(date);
 }
 
-function formatPeriodType(type: string): string {
-  return type.replaceAll('_', ' ');
-}
-
 function modelNodes(models: ModelUsage[]): UsageNode[] {
   if (!models.length) {
     return [{ label: 'No model requests', icon: 'circle-slash' }];
@@ -56,42 +51,47 @@ function modelNodes(models: ModelUsage[]): UsageNode[] {
 function limitNode(name: string, limit: LimitUsage): UsageNode {
   return {
     label: name,
-    description: `Usage: ${limit.usage}`,
+    description: `Used: ${formatPercent(limit.usage)} · resets ${formatDate(limit.resets_at)}`,
     icon: 'dashboard',
     children: modelNodes(limit.models),
   };
 }
 
+function creditNode(credits: CreditUsage): UsageNode {
+  return {
+    label: 'Included credits',
+    description: `$${credits.balance_usd.toFixed(2)} of $${credits.allowance_usd.toFixed(2)} · resets ${formatDate(credits.period.until)}`,
+    icon: 'credit-card',
+    children: modelNodes(credits.models),
+  };
+}
+
 function usageNodes(usage: UsageResponse): UsageNode[] {
-  const period = usage.activity.period;
-  return [
-    {
-      label: 'Activity',
-      description: `Cost: $${usage.activity.cost}`,
+  const nodes: UsageNode[] = [];
+
+  if (usage.session) {
+    nodes.push(limitNode('Session (5h)', usage.session));
+  }
+  if (usage.weekly) {
+    nodes.push(limitNode('Weekly', usage.weekly));
+  }
+  if (usage.credits) {
+    nodes.push(creditNode(usage.credits));
+  }
+  if (usage.spend) {
+    const cost = usage.spend.cost_usd === undefined ? '' : `$${usage.spend.cost_usd.toFixed(2)} · `;
+    nodes.push({
+      label: usage.spend.cost_usd === undefined ? 'Requests' : 'Spend',
+      description: `${usage.spend.range} · ${cost}${usage.spend.request_count.toLocaleString()} requests`,
+      tooltip: usage.spend.from && usage.spend.until
+        ? `From ${usage.spend.from} to ${usage.spend.until}`
+        : undefined,
       icon: 'graph',
-      children: [
-        {
-          label: formatPeriodType(period.type),
-          description: `${formatDate(period.starting_at)} – ${formatDate(period.ending_at)}`,
-          tooltip: `From ${period.starting_at} to ${period.ending_at}`,
-          icon: 'calendar',
-        },
-        {
-          label: 'Models',
-          icon: 'symbol-class',
-          children: modelNodes(usage.activity.models),
-        },
-      ],
-    },
-    {
-      label: 'Limits',
-      icon: 'meter',
-      children: [
-        limitNode('Session', usage.limits.session),
-        limitNode('Weekly', usage.limits.weekly),
-      ],
-    },
-  ];
+      children: modelNodes(usage.spend.models),
+    });
+  }
+
+  return nodes;
 }
 
 export interface StatusUpdate {
@@ -106,13 +106,16 @@ export interface DataUpdate {
   error: string | undefined;
   loading: boolean;
   accounts: AccountsState;
-  sessionResetMs: number;
 }
 
 const BLUE_PALETTE = ['#2563eb', '#3b82f6', '#4f46e5', '#60a5fa', '#1d4ed8', '#6366f1', '#818cf8', '#93c5fd'];
 
 function formatPercent(usage: number): string {
   return `${Math.round(usage * 100)}%`;
+}
+
+function formatUsd(value: number): string {
+  return Number(value.toFixed(2)).toString();
 }
 
 // Stacked bar: each model = one shade of blue. Filled cells = window usage %,
@@ -154,20 +157,52 @@ function formatReset(ms: number): string {
   return `${s} second${s > 1 ? 's' : ''}`;
 }
 
-function quotaTooltip(usage: UsageResponse, sessionResetMs: number): vscode.MarkdownString {
+function formatResetSince(iso: string, now: number): string {
+  const resetMs = Date.parse(iso);
+  if (!Number.isFinite(resetMs)) {
+    return '—';
+  }
+  const remaining = resetMs - now;
+  return remaining <= 0 ? 'now' : formatReset(remaining);
+}
+
+function quotaTooltip(usage: UsageResponse): vscode.MarkdownString {
   const now = Date.now();
-  const sReset = sessionResetMs ? formatReset(sessionResetMs - now) : '—';
-  const wReset = formatReset(nextWeeklyResetMs(now) - now);
   const md = new vscode.MarkdownString();
   md.isTrusted = true;
   md.supportHtml = true;
   md.supportThemeIcons = true;
   md.appendMarkdown(`### $(dashboard) Quota\n\n`);
   md.appendMarkdown(`| Window | Share | Reset |\n|:--|:--|:--|\n`);
-  md.appendMarkdown(`| 5 hour | ${barSegments(usage.limits.session.models, usage.limits.session.usage)} **${formatPercent(usage.limits.session.usage)}** | ${sReset} |\n`);
-  md.appendMarkdown(`| Week | ${barSegments(usage.limits.weekly.models, usage.limits.weekly.usage)} **${formatPercent(usage.limits.weekly.usage)}** | ${wReset} |\n\n`);
+
+  if (usage.session) {
+    md.appendMarkdown(`| 5 hour | ${barSegments(usage.session.models, usage.session.usage)} **${formatPercent(usage.session.usage)}** | ${formatResetSince(usage.session.resets_at, now)} |\n`);
+  }
+  if (usage.weekly) {
+    md.appendMarkdown(`| Week | ${barSegments(usage.weekly.models, usage.weekly.usage)} **${formatPercent(usage.weekly.usage)}** | ${formatResetSince(usage.weekly.resets_at, now)} |\n`);
+  }
+  if (usage.credits) {
+    const credits = usage.credits;
+    md.appendMarkdown(`| Credits | ${barSegments(credits.models, credits.usage)} **$${formatUsd(credits.balance_usd)} / $${formatUsd(credits.allowance_usd)}** | ${formatResetSince(credits.period.until, now)} |\n`);
+  }
+
+  if (usage.spend) {
+    const cost = usage.spend.cost_usd === undefined ? '' : `$${usage.spend.cost_usd.toFixed(2)} · `;
+    md.appendMarkdown(`\n**${usage.spend.range}:** ${cost}${usage.spend.request_count.toLocaleString()} requests\n\n`);
+  }
+
   md.appendMarkdown(`*Auto-refresh every 60s · Click to open detail.*`);
   return md;
+}
+
+function statusText(usage: UsageResponse): string {
+  if (usage.session && usage.weekly) {
+    return `$(dashboard) 5H:${formatPercent(usage.session.usage)} W:${formatPercent(usage.weekly.usage)}`;
+  }
+  if (usage.credits) {
+    return `$(dashboard) $${formatUsd(usage.credits.balance_usd)}/$${formatUsd(usage.credits.allowance_usd)}`;
+  }
+  return '$(dashboard) Ollama';
 }
 
 export class UsageTreeProvider implements vscode.TreeDataProvider<UsageTreeItem> {
@@ -181,13 +216,12 @@ export class UsageTreeProvider implements vscode.TreeDataProvider<UsageTreeItem>
   private error: string | undefined;
   private loading = false;
   private accountsState: AccountsState = { accounts: [] };
-  private sessionResetMs = 0;
   private lastRefreshMs = 0;
 
   constructor(private readonly store: AccountStore) {}
 
   getData(): DataUpdate {
-    return { usage: this.usage, error: this.error, loading: this.loading, accounts: this.accountsState, sessionResetMs: this.sessionResetMs };
+    return { usage: this.usage, error: this.error, loading: this.loading, accounts: this.accountsState };
   }
 
   getUsage(): UsageResponse | undefined {
@@ -196,7 +230,7 @@ export class UsageTreeProvider implements vscode.TreeDataProvider<UsageTreeItem>
 
   buildTooltip(): vscode.MarkdownString {
     if (this.usage) {
-      return quotaTooltip(this.usage, this.sessionResetMs);
+      return quotaTooltip(this.usage);
     }
     return new vscode.MarkdownString('Ollama Cloud Usage');
   }
@@ -225,8 +259,8 @@ export class UsageTreeProvider implements vscode.TreeDataProvider<UsageTreeItem>
         description: 'Set API Key',
         icon: 'warning',
         command: {
-          command: 'ollamaCloud.setApiKey',
-          title: 'Ollama Cloud: Set API Key',
+          command: 'ollamaCloud.addAccount',
+          title: 'Ollama Cloud: Add Account',
         },
       })];
     }
@@ -240,8 +274,7 @@ export class UsageTreeProvider implements vscode.TreeDataProvider<UsageTreeItem>
     this.onDidChangeTreeDataEmitter.fire(undefined);
     this.onDidChangeStatusEmitter.fire({ text: '$(loading~spin) Ollama', tooltip: 'Loading Ollama usage…' });
     this.accountsState = await this.store.load();
-    this.sessionResetMs = nextSessionResetMs(Date.now());
-    this.onDidChangeDataEmitter.fire({ usage: this.usage, error: this.error, loading: true, accounts: this.accountsState, sessionResetMs: this.sessionResetMs });
+    this.onDidChangeDataEmitter.fire({ usage: this.usage, error: this.error, loading: true, accounts: this.accountsState });
 
     try {
       const active = await this.store.getActive();
@@ -251,10 +284,8 @@ export class UsageTreeProvider implements vscode.TreeDataProvider<UsageTreeItem>
       }
       this.usage = await fetchUsage(apiKey);
       this.lastRefreshMs = Date.now();
-      const sessionPct = Math.round(this.usage.limits.session.usage * 100);
-      const weeklyPct = Math.round(this.usage.limits.weekly.usage * 100);
       this.onDidChangeStatusEmitter.fire({
-        text: `$(dashboard) 5H:${sessionPct}% W:${weeklyPct}%`,
+        text: statusText(this.usage),
         tooltip: this.buildTooltip(),
       });
     } catch (error) {
@@ -263,7 +294,7 @@ export class UsageTreeProvider implements vscode.TreeDataProvider<UsageTreeItem>
       const errMd = new vscode.MarkdownString();
       errMd.supportHtml = true;
       errMd.supportThemeIcons = true;
-      errMd.appendMarkdown(`$(warning) **${this.error}**\n\n[Set API key](command:ollamaCloud.setApiKey)`);
+      errMd.appendMarkdown(`$(warning) **${this.error}**\n\n[Add account](command:ollamaCloud.addAccount)`);
       this.onDidChangeStatusEmitter.fire({
         text: '$(warning) Ollama',
         tooltip: errMd,
@@ -272,7 +303,7 @@ export class UsageTreeProvider implements vscode.TreeDataProvider<UsageTreeItem>
     } finally {
       this.loading = false;
       this.onDidChangeTreeDataEmitter.fire(undefined);
-      this.onDidChangeDataEmitter.fire({ usage: this.usage, error: this.error, loading: this.loading, accounts: this.accountsState, sessionResetMs: this.sessionResetMs });
+      this.onDidChangeDataEmitter.fire({ usage: this.usage, error: this.error, loading: this.loading, accounts: this.accountsState });
     }
   }
 }

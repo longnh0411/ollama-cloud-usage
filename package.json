@@ -2,13 +2,13 @@
   "name": "ollama-cloud-usage",
   "displayName": "Ollama Cloud Usage",
   "description": "View Ollama Cloud usage and limits in VS Code.",
-  "version": "1.0.5",
+  "version": "1.1.0",
   "publisher": "ollama-cloud-usage",
   "author": {
     "name": "LongNH94",
     "email": "longnh94@fpt.com"
   },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/longnh0411/ollama-cloud-usage.git"

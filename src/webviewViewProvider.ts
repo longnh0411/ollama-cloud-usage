@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ModelUsage, UsageResponse } from './api';
+import { CreditUsage, ModelUsage, UsageResponse } from './api';
 import { AccountsState } from './accountStore';
 
 // Blue palette, one shade per model (by index).
@@ -29,14 +29,32 @@ function segmentsHtml(models: ModelUsage[], usage: number): string {
   return `<div class="bar">${segs}</div>`;
 }
 
-function rowHtml(label: string, usage: number, models: ModelUsage[], resetType: string): string {
+function countdownHtml(resetIso: string | undefined): string {
+  if (!resetIso) {
+    return '';
+  }
+  return `<div class="reset">Resets in <span data-reset="${escapeHtml(resetIso)}">…</span>.</div>`;
+}
+
+function rowHtml(label: string, usage: number, models: ModelUsage[], resetIso: string | undefined): string {
   return `<div class="row">
     <div class="row-head">
       <span class="row-label">${label}</span>
       <span class="row-pct">${pct(usage)}% used</span>
     </div>
     ${segmentsHtml(models, usage)}
-    <div class="reset">Resets in <span data-reset="${resetType}">…</span>.</div>
+    ${countdownHtml(resetIso)}
+  </div>`;
+}
+
+function creditsRowHtml(credits: CreditUsage): string {
+  return `<div class="row">
+    <div class="row-head">
+      <span class="row-label">Included credits</span>
+      <span class="row-pct">$${credits.balance_usd.toFixed(2)} of $${credits.allowance_usd.toFixed(2)} left</span>
+    </div>
+    ${segmentsHtml(credits.models, credits.usage)}
+    ${countdownHtml(credits.period.until)}
   </div>`;
 }
 
@@ -51,6 +69,13 @@ function modelListHtml(models: ModelUsage[]): string {
       <span class="model-count">${m.request_count.toLocaleString()} requests</span>
     </div>`,
   ).join('');
+}
+
+function modelGroupHtml(label: string, models: ModelUsage[]): string {
+  return `<div class="group">
+      <div class="group-label">${label}</div>
+      <div class="models">${modelListHtml(models)}</div>
+    </div>`;
 }
 
 function accountsHtml(state: AccountsState): string {
@@ -68,7 +93,41 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 }
 
-function bodyHtml(usage: UsageResponse | undefined, error: string | undefined, loading: boolean, accounts: AccountsState, sessionResetMs: number): string {
+function usageBodyHtml(usage: UsageResponse): string {
+  const sections: string[] = [];
+
+  if (usage.session) {
+    sections.push(rowHtml('Session usage', usage.session.usage, usage.session.models, usage.session.resets_at));
+    sections.push(modelGroupHtml('Models used this session', usage.session.models));
+  }
+
+  if (usage.weekly) {
+    sections.push('<div class="spacer"></div>');
+    sections.push(rowHtml('Weekly usage', usage.weekly.usage, usage.weekly.models, usage.weekly.resets_at));
+    sections.push(modelGroupHtml('Models used this week', usage.weekly.models));
+  }
+
+  if (usage.credits) {
+    sections.push(creditsRowHtml(usage.credits));
+    sections.push(modelGroupHtml('Models used this period', usage.credits.models));
+    if (usage.credits.purchased_usd !== undefined && usage.credits.purchased_usd > 0) {
+      sections.push(`<div class="hint">Purchased credits: $${usage.credits.purchased_usd.toFixed(2)}</div>`);
+    }
+  }
+
+  if (usage.spend) {
+    const cost = usage.spend.cost_usd === undefined ? '' : `$${usage.spend.cost_usd.toFixed(2)} · `;
+    const label = usage.spend.cost_usd === undefined ? 'Requests' : 'Spend';
+    sections.push(`<div class="group">
+      <div class="group-label">${label} (${escapeHtml(usage.spend.range)})</div>
+      <div class="spend">${cost}${usage.spend.request_count.toLocaleString()} requests</div>
+    </div>`);
+  }
+
+  return sections.join('\n');
+}
+
+function bodyHtml(usage: UsageResponse | undefined, error: string | undefined, loading: boolean, accounts: AccountsState): string {
   const toolbar = `<div class="toolbar">
     <h2>☁ Cloud usage</h2>
     <div class="actions">
@@ -87,20 +146,7 @@ function bodyHtml(usage: UsageResponse | undefined, error: string | undefined, l
   if (!usage) {
     return `${toolbar}<div class="state">No data.</div>`;
   }
-  const sp = pct(usage.limits.session.usage);
-  const wp = pct(usage.limits.weekly.usage);
-  return `${toolbar}
-    ${rowHtml('Session usage', usage.limits.session.usage, usage.limits.session.models, 'session')}
-    <div class="group">
-      <div class="group-label">Models used this session</div>
-      <div class="models">${modelListHtml(usage.limits.session.models)}</div>
-    </div>
-    <div class="spacer"></div>
-    ${rowHtml('Weekly usage', usage.limits.weekly.usage, usage.limits.weekly.models, 'weekly')}
-    <div class="group">
-      <div class="group-label">Models used this week</div>
-      <div class="models">${modelListHtml(usage.limits.weekly.models)}</div>
-    </div>`;
+  return `${toolbar}${usageBodyHtml(usage)}`;
 }
 
 const CSS = `
@@ -115,9 +161,9 @@ const CSS = `
   .account-select { flex: 1; font-family: var(--vscode-font-family); font-size: 12px; padding: 4px 8px; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border); border-radius: 4px; }
   h2 { font-size: 14px; font-weight: 600; margin: 0 0 18px 0; }
   .row { margin-bottom: 16px; }
-  .row-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .row-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; gap: 12px; }
   .row-label { font-size: 13px; font-weight: 500; }
-  .row-pct { font-size: 12px; font-weight: 600; }
+  .row-pct { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
   .reset { font-size: 11px; color: var(--vscode-descriptionForeground); margin-top: 4px; font-variant-numeric: tabular-nums; }
   .bar { background: var(--vscode-scrollbarSlider-background); border-radius: 6px; height: 6px; overflow: hidden; display: flex; }
   .seg { height: 6px; transition: width .3s ease; cursor: default; }
@@ -130,6 +176,9 @@ const CSS = `
   .dot { font-size: 10px; line-height: 1; }
   .model-name { flex: 1; }
   .model-count { color: var(--vscode-descriptionForeground); font-variant-numeric: tabular-nums; }
+  .spend { font-size: 12px; font-variant-numeric: tabular-nums; }
+  .hint { font-size: 11px; color: var(--vscode-descriptionForeground); margin-top: 6px; }
+  .empty { font-size: 12px; color: var(--vscode-descriptionForeground); }
   .state { padding: 20px 0; text-align: center; color: var(--vscode-descriptionForeground); }
   .state.error { color: #f48771; }
   .btn { margin-top: 12px; padding: 6px 12px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
@@ -139,10 +188,10 @@ const CSS = `
 export class UsagePanel {
   private panel: vscode.WebviewPanel | undefined;
 
-  show(usage: UsageResponse | undefined, error: string | undefined, loading: boolean, accounts: AccountsState, sessionResetMs: number): void {
+  show(usage: UsageResponse | undefined, error: string | undefined, loading: boolean, accounts: AccountsState): void {
     if (this.panel) {
       this.panel.reveal();
-      this.render(usage, error, loading, accounts, sessionResetMs);
+      this.render(usage, error, loading, accounts);
       return;
     }
     this.panel = vscode.window.createWebviewPanel(
@@ -163,10 +212,10 @@ export class UsagePanel {
       }
     });
     this.panel.onDidDispose(() => { this.panel = undefined; });
-    this.render(usage, error, loading, accounts, sessionResetMs);
+    this.render(usage, error, loading, accounts);
   }
 
-  render(usage: UsageResponse | undefined, error: string | undefined, loading: boolean, accounts: AccountsState, sessionResetMs: number): void {
+  render(usage: UsageResponse | undefined, error: string | undefined, loading: boolean, accounts: AccountsState): void {
     if (!this.panel) {
       return;
     }
@@ -183,7 +232,9 @@ export class UsagePanel {
       document.addEventListener('mouseover', (e) => {
         const seg = e.target.closest('.seg');
         if (!seg || !tip) { return; }
-        tip.innerHTML = '<strong>' + seg.dataset.name + '</strong><br>' + seg.dataset.count + ' requests';
+        const name = document.createElement('strong');
+        name.textContent = seg.dataset.name;
+        tip.replaceChildren(name, document.createElement('br'), document.createTextNode(seg.dataset.count + ' requests'));
         tip.style.display = 'block';
       });
       document.addEventListener('mousemove', (e) => {
@@ -193,13 +244,6 @@ export class UsagePanel {
         if (e.target.closest('.seg') && tip) { tip.style.display = 'none'; }
       });
 
-      // Epoch-aligned UTC boundaries: session 5h (00/05/10/15/20 UTC),
-      // weekly 7d anchored to Monday 00:00 UTC (epoch Thursday shifted -4d).
-      const SESSION_WINDOW_MS = 5 * 3600000;
-      const WEEK_MS = 7 * 86400000;
-      const WEEK_ANCHOR_OFFSET_MS = 4 * 86400000;
-      function nextSessionReset(now) { return now + (SESSION_WINDOW_MS - (now % SESSION_WINDOW_MS)); }
-      function nextWeeklyReset(now) { return now + (WEEK_MS - ((now - WEEK_ANCHOR_OFFSET_MS) % WEEK_MS)); }
       function format(ms) {
         const s = Math.round(ms / 1000);
         const m = Math.floor(s / 60);
@@ -210,21 +254,20 @@ export class UsagePanel {
         if (m >= 1) { return m + ' minute' + (m > 1 ? 's' : ''); }
         return s + ' second' + (s > 1 ? 's' : '');
       }
+      // Reset times come from the API (/api/balance resets_at / period.until).
       function tick() {
         const now = Date.now();
         document.querySelectorAll('[data-reset]').forEach(el => {
-          const type = el.dataset.reset;
-          if (type === 'session') {
-            el.textContent = format(nextSessionReset(now) - now);
-          } else {
-            el.textContent = format(nextWeeklyReset(now) - now);
-          }
+          const resetMs = Date.parse(el.dataset.reset);
+          if (!Number.isFinite(resetMs)) { el.textContent = '—'; return; }
+          const remaining = resetMs - now;
+          el.textContent = remaining <= 0 ? 'now' : format(remaining);
         });
       }
       tick();
       setInterval(tick, 1000);
     </script>`;
     this.panel.webview.html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${CSS}</style></head>
-      <body>${bodyHtml(usage, error, loading, accounts, sessionResetMs)}<div id="tip"></div>${script}</body></html>`;
+      <body>${bodyHtml(usage, error, loading, accounts)}<div id="tip"></div>${script}</body></html>`;
   }
 }

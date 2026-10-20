@@ -1,0 +1,114 @@
+{
+  "info": {
+    "name": "Ollama Cloud Usage",
+    "description": "Requests used by the Ollama Cloud Usage VS Code extension. Set the apiKey collection variable before running. All requests are GET with no body; auth is Bearer.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://ollama.com"
+    },
+    {
+      "key": "apiKey",
+      "value": "PASTE_YOUR_OLLAMA_API_KEY_HERE"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Balance (quota + reset times)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{apiKey}}",
+            "type": "text"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/balance",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "balance"]
+        },
+        "body": null,
+        "description": "Returns either included.session/weekly { remaining_percent, resets_at } (legacy plan) or included.balance_usd/allowance_usd/period (credit plan), plus purchased.balance_usd."
+      }
+    },
+    {
+      "name": "2. Usage 24h grouped by model (session window)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{apiKey}}",
+            "type": "text"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/usage?range=24h&group_by=model",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "usage"],
+          "query": [
+            {
+              "key": "range",
+              "value": "24h"
+            },
+            {
+              "key": "group_by",
+              "value": "model"
+            }
+          ]
+        },
+        "body": null,
+        "description": "Hourly buckets used to isolate requests inside the current 5h session window."
+      }
+    },
+    {
+      "name": "3. Usage 7d grouped by model (weekly window + spend)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{apiKey}}",
+            "type": "text"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/usage?range=7d&group_by=model",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "usage"],
+          "query": [
+            {
+              "key": "range",
+              "value": "7d"
+            },
+            {
+              "key": "group_by",
+              "value": "model"
+            }
+          ]
+        },
+        "body": null,
+        "description": "Daily buckets used for the weekly model list and the 7-day spend summary."
+      }
+    }
+  ]
+}

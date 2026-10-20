@@ -2,6 +2,19 @@
 
 All notable changes to the Ollama Cloud Usage extension.
 
+## 1.1.0 - 2026-10-20
+
+### Fixed
+- Adapted to Ollama's 2026-10-07 API change. Quota data now comes from `GET /api/balance` (the `/api/usage` response no longer contains `activity` / `limits`; it returns a time series with `totals` and `buckets`).
+- Requests now send `Authorization: Bearer <API key>`, matching the current API docs.
+- Reset countdowns use the server-provided `resets_at` / `period.until` timestamps instead of the local UTC boundary heuristic (removed `resetTime.ts`).
+- Error tooltips now open the Add Account command instead of the non-existent `setApiKey` command.
+
+### Added
+- Support for credit-based plans alongside legacy 5h/weekly plans: the status bar and panel show the USD credit balance and allowance, and model breakdowns use `range=30d` to cover the included period.
+- Model breakdowns from `GET /api/usage?range=24h|7d&group_by=model`, including session-window counts derived from hourly buckets.
+- 7-day request summary (USD spend shown when the plan reports `usage_usd`).
+
 ## 1.0.5 - 2026-08-19
 
 ### Changed

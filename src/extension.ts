@@ -31,12 +31,12 @@ export function activate(context: vscode.ExtensionContext): void {
       usageBar.backgroundColor = backgroundColor;
       usageBar.color = undefined;
     }),
-    provider.onDidChangeData(({ usage, error, loading, accounts, sessionResetMs }) => {
-      panel.render(usage, error, loading, accounts, sessionResetMs);
+    provider.onDidChangeData(({ usage, error, loading, accounts }) => {
+      panel.render(usage, error, loading, accounts);
     }),
     vscode.commands.registerCommand('ollamaCloud.openPanel', () => {
       const d = provider.getData();
-      panel.show(d.usage, d.error, d.loading, d.accounts, d.sessionResetMs);
+      panel.show(d.usage, d.error, d.loading, d.accounts);
     }),
     vscode.commands.registerCommand('ollamaCloud.refresh', async () => {
       await vscode.window.withProgress(
