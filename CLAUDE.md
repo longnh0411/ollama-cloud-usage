@@ -144,3 +144,33 @@ Ollama changed the API on **2026-10-07**; the extension had been broken.
 - `totals.groups` is capped at 10 models plus an optional `remainder`; per-bucket groups are used for window counts.
 - Credit-plan behavior is implemented from the official docs and simulated fixtures; it has **not** been tested against a real credit account yet. If one is available, capture `/api/balance` and `/api/usage?range=30d&group_by=model` and add fixtures.
 - No custom proxy agent is needed: relying on VS Code's module patch keeps credentials and PAC handling working. If an explicit proxy is ever required (e.g. proxy support disabled), resolve it from `http.proxy` / `HTTPS_PROXY` and add CONNECT support deliberately.
+
+<!-- KB-POINTER:START — managed by agent-knowledge-base /kb-onboard. Do not edit by hand. -->
+## 🧭 Multi-repo workspace — Knowledge Base
+
+This repository is part of a **multi-repo workspace**. A shared knowledge base
+describes every repo here and how they connect.
+
+- **KB location:** `../.knowledge-base/`
+- **This repo in the KB:** `../.knowledge-base/repos/ollama-cloud-usage/overview.md`
+
+**Before any cross-cutting work** (new feature, refactor, anything that might
+touch more than this repo), read in order and stop when you have enough:
+
+1. `../.knowledge-base/INDEX.md` — what every repo is.
+2. `../.knowledge-base/relationships.md` — how they connect + impact table.
+3. `../.knowledge-base/repos/ollama-cloud-usage/overview.md` — this repo's map.
+
+For a feature that may span repos, run `/kb-feature "<description>"` **from the
+KB** (the `feature-workflow` skill at
+`../.claude/skills/feature-workflow/SKILL.md`): it finds affected repos via the
+KB, drafts a plan + self-contained task specs, writes testcases before
+implementation, and can execute the plan with tiered executor/verifier
+subagents. Plans live in `../.knowledge-base/plans/`.
+
+`/kb-*` commands don't exist in a session opened directly in this repo — open
+one in the KB (or run `/kb-install-root` once from the KB to also get them at
+the workspace root). From here, just read the KB files by path as above.
+
+If you changed code here, keep the KB current with `/kb-update`.
+<!-- KB-POINTER:END -->
